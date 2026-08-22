@@ -1,0 +1,28 @@
+{
+  "name": "mcp-rpg-worldstate",
+  "version": "2.2.0",
+  "description": "Local MCP server for persistent RPG and storytelling world state.",
+  "type": "module",
+  "bin": {
+    "mcp-rpg-worldstate": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "test": "npm run build && node --test dist/**/*.test.js",
+    "check": "tsc -p tsconfig.json --noEmit"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.3",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  }
+}

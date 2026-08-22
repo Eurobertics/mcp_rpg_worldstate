@@ -1,0 +1,4 @@
+interface:
+  display_name: "RPG Worldstate GM"
+  short_description: "Use the RPG Worldstate MCP as a consistent GM memory"
+  default_prompt: "Continue or manage an RPG campaign using the persistent Worldstate MCP."
