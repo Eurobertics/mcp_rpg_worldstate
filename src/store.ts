@@ -191,7 +191,16 @@ export class WorldStateStore {
     const world = this.getWorld(worldId);
     const expected = `DELETE: ${String(world.name)}`;
     if (confirmation !== expected) throw new Error(`Confirmation must exactly equal ${JSON.stringify(expected)}.`);
-    this.db.prepare(`DELETE FROM worlds WHERE id = ?`).run(worldId);
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      // Parent RESTRICT links otherwise block the world's cascading entity deletion.
+      this.db.prepare(`UPDATE entities SET parent_id = NULL WHERE world_id = ? AND parent_id IS NOT NULL`).run(worldId);
+      this.db.prepare(`DELETE FROM worlds WHERE id = ?`).run(worldId);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
     return { deleted: true, worldId, name: String(world.name) };
   }
 

@@ -257,17 +257,52 @@ describe("WorldStateStore", () => {
     const store = makeStore();
     const world = store.createWorld("Odyssey", "Science fiction");
     const location = store.createEntity(Number(world.id), { kind: "location", name: "Bridge" });
+    const room = store.createEntity(Number(world.id), { kind: "location", name: "Ready room", parentId: Number(location.id) });
+    store.createEntity(Number(world.id), { kind: "location", name: "Closet", parentId: Number(room.id) });
     const character = store.createEntity(Number(world.id), { kind: "character", name: "Miller", locationId: Number(location.id) });
     store.setScene(Number(world.id), { title: "Watch", summary: "Quiet watch", participantIds: [Number(character.id)] });
     store.createCheckpoint(Number(world.id), "End of watch", "Nothing exploded.");
 
     assert.throws(() => store.deleteWorld(Number(world.id), "yes"), /Confirmation/);
+    assert.equal(store.getEntity(Number(room.id)).parent_id, location.id);
+    assert.throws(() => store.applyChanges(Number(world.id), [
+      { action: "delete", entityId: Number(location.id) }
+    ]), /FOREIGN KEY/);
     store.deleteWorld(Number(world.id), "DELETE: Odyssey");
 
     for (const table of ["entities", "scenes", "scene_participants", "checkpoints", "events"]) {
       const row = store.db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number };
       assert.equal(row.count, 0, `${table} should be empty`);
     }
+  });
+
+  it("preserves other worlds and rolls back hierarchy changes when world deletion fails", () => {
+    const store = makeStore();
+    const world = store.createWorld("Ankunft — Hanka & Thomas", "Test");
+    const other = store.createWorld("Other", "Preserve me");
+    const parent = store.createEntity(Number(world.id), { kind: "location", name: "House" });
+    const child = store.createEntity(Number(world.id), { kind: "location", name: "Room", parentId: Number(parent.id) });
+    const otherParent = store.createEntity(Number(other.id), { kind: "location", name: "House" });
+    store.createEntity(Number(other.id), { kind: "location", name: "Room", parentId: Number(otherParent.id) });
+    store.applyChanges(Number(world.id), [], "Arrival");
+    const snapshot = () => ["worlds", "entities", "scenes", "scene_participants", "checkpoints", "events"]
+      .map((table) => store.db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all());
+    const before = snapshot();
+    store.db.exec(`CREATE TRIGGER prevent_world_delete BEFORE DELETE ON worlds
+      BEGIN SELECT RAISE(ABORT, 'Deletion blocked for test'); END`);
+    assert.throws(() => store.deleteWorld(Number(world.id), `DELETE: ${world.name}`), /Deletion blocked/);
+    assert.deepEqual(snapshot(), before);
+    assert.equal(store.getEntity(Number(child.id)).parent_id, parent.id);
+    store.db.exec("DROP TRIGGER prevent_world_delete");
+    const otherBefore = store.searchEntities({ worldId: Number(other.id) });
+    assert.deepEqual(store.deleteWorld(Number(world.id), `DELETE: ${world.name}`), {
+      deleted: true, worldId: Number(world.id), name: world.name
+    });
+    assert.deepEqual(store.getWorld(Number(other.id)), before[0]?.[1]);
+    assert.deepEqual(store.searchEntities({ worldId: Number(other.id) }), otherBefore);
+    assert.throws(() => store.getWorld(Number(world.id)), /does not exist/);
+    assert.equal(store.db.prepare("SELECT COUNT(*) AS count FROM events").get()?.count, 0);
+    assert.deepEqual(store.db.prepare("PRAGMA foreign_key_check").all(), []);
   });
 });
 
