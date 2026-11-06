@@ -52,6 +52,64 @@ Ein lokaler MCP-Client kann den Server über stdio starten. Das allgemeine Konfi
 
 Die genaue Stelle für diese Konfiguration hängt vom verwendeten MCP-Client ab. Der Server schreibt Protokollmeldungen ausschließlich nach stderr, damit das MCP-Protokoll auf stdout sauber bleibt.
 
+### HTTP und HTTPS (Streamable HTTP)
+
+Zusätzlich zu `stdio` unterstützt der Server zustandsloses MCP Streamable HTTP
+unter `/mcp`. Mehrere Clients teilen sich dieselbe SQLite-Datenbank. Es gibt
+keine Sitzungstrennung, Benutzerrechte oder Scopes: Ein gültiger Token erlaubt
+Vollzugriff auf alle Welten, einschließlich geheimer Daten.
+
+| Umgebungsvariable | Bedeutung | Standard |
+|---|---|---|
+| `RPG_WORLDSTATE_TRANSPORT` | `stdio`, `http` oder `https` | `stdio` |
+| `RPG_WORLDSTATE_HOST` | Bind-Adresse; für Remote-Zugriff z. B. `0.0.0.0` | `127.0.0.1` |
+| `RPG_WORLDSTATE_PORT` | Port von 1 bis 65535 | `3000` |
+| `RPG_WORLDSTATE_TOKEN` | Ein Bearer API Token mit Vollzugriff; im Netzwerkmodus erforderlich | keiner |
+| `RPG_WORLDSTATE_TLS_CERT` | Pfad zur PEM-Zertifikatsdatei, ggf. mit Zertifikatskette | keiner |
+| `RPG_WORLDSTATE_TLS_KEY` | Pfad zum zugehörigen unverschlüsselten privaten PEM-Schlüssel | keiner |
+| `RPG_WORLDSTATE_DB` | SQLite-Dateipfad | `rpg-worldstate.sqlite` |
+
+HTTP lokal oder hinter einem Reverse Proxy:
+
+```bash
+export RPG_WORLDSTATE_TRANSPORT=http
+export RPG_WORLDSTATE_HOST=127.0.0.1
+export RPG_WORLDSTATE_PORT=3000
+export RPG_WORLDSTATE_TOKEN="$(openssl rand -hex 32)"
+npm start
+```
+
+Direktes HTTPS mit vorhandenen Zertifikaten:
+
+```bash
+export RPG_WORLDSTATE_TRANSPORT=https
+export RPG_WORLDSTATE_HOST=0.0.0.0
+export RPG_WORLDSTATE_PORT=3443
+export RPG_WORLDSTATE_TOKEN="<vorhandener-geheimer-token>"
+export RPG_WORLDSTATE_TLS_CERT=/etc/worldstate/fullchain.pem
+export RPG_WORLDSTATE_TLS_KEY=/etc/worldstate/privkey.pem
+npm start
+```
+
+Der Client verwendet die URL `https://server.example:3443/mcp` und sendet bei
+jedem Aufruf `Authorization: Bearer <token>`. Token werden nicht protokolliert.
+Im stdio-Modus wird kein Token benötigt. Netzwerkmodi starten bei fehlendem
+Token nicht; HTTPS startet bei fehlenden, unlesbaren oder ungültigen
+Zertifikaten/Schlüsseln ebenfalls nicht. TLS 1.2 ist die Mindestversion.
+
+Zertifikate werden ausschließlich aus Dateien geladen. Beschaffung und
+Erneuerung erfolgen außerhalb des Servers; nach Änderungen an Zertifikaten
+oder Token muss der Prozess neu gestartet werden. Clients müssen dem
+Zertifikat vertrauen. HTTP überträgt auch den Token unverschlüsselt.
+
+Die Implementierung verwendet JSON-Antworten ohne dauerhafte SSE-Verbindung
+oder Session-IDs. GET und DELETE auf `/mcp` liefern nach Authentifizierung 405;
+fehlende oder falsche Token liefern 401 mit Bearer-Challenge. Anfragen mit
+`Origin` werden mit 403 abgelehnt; Browser-CORS-Zugriff wird nicht angeboten.
+Ein Reverse Proxy muss den Authorization-Header und POST-Anfragen weiterleiten.
+Die Module `config.ts`, `auth.ts` und `http.ts` kapseln Konfiguration,
+Authentifizierung und Listener getrennt von den MCP-Tools.
+
 ### Claude Desktop unter Windows mit Server in WSL
 
 Wenn Claude Desktop unter Windows läuft, der MCP-Server aber innerhalb von WSL installiert ist, kann Claude ihn über `wsl.exe` starten. Die Konfiguration befindet sich normalerweise unter:
@@ -102,7 +160,7 @@ mcp-rpg-worldstate is using /home/eurobertics/projects/mcp_rpg_worldstate/rpg-wo
 
 Der Prozess bleibt anschließend aktiv und wartet auf MCP-Nachrichten über stdin. Das ist das erwartete Verhalten. Nach einer Änderung der Konfigurationsdatei muss Claude Desktop vollständig beendet und neu gestartet werden.
 
-> **ChatGPT-Hinweis:** Diese Konfiguration verwendet den lokalen `stdio`-Transport von Claude Desktop. Sie lässt sich nicht unverändert für ChatGPT Desktop übernehmen. Dafür müsste der Server zusätzlich über einen von ChatGPT unterstützten HTTP-Transport und eine erreichbare URL bereitgestellt werden.
+> **ChatGPT-Hinweis:** Diese Konfiguration verwendet den lokalen `stdio`-Transport von Claude Desktop. Sie lässt sich nicht unverändert für ChatGPT Desktop übernehmen. Dafür muss der Server im HTTP(S)-Modus über eine erreichbare URL bereitgestellt werden; der Client muss Streamable HTTP und den konfigurierten Bearer-Token unterstützen.
 
 ## Werkzeuge
 
@@ -223,5 +281,5 @@ Die wichtigsten Dateien sind:
 
 - `src/store.ts`: SQLite-Schema, Validierung und Abfragen
 - `src/server.ts`: öffentliche MCP-Tools und Eingabeschemata
-- `src/index.ts`: lokaler stdio-Einstiegspunkt
+- `src/index.ts`: Einstiegspunkt und Auswahl von stdio, HTTP oder HTTPS
 - `src/*.test.ts`: Datenbank- und MCP-Protokolltests
